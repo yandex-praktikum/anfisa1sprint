@@ -34,12 +34,6 @@ from abc import ABC
 from abc import abstractmethod
 from typing import Callable
 
-class YapTestingException(Exception):
-    pass
-
-class YapTestingException(Exception):
-    pass
-
 def read_text_file_asserting_content(
         file_path: Union[str, Path], expect_content: Optional[str],
         remove_re_when_comparing: Union[str, object],
@@ -757,7 +751,7 @@ class PytestRunner:
                 self.args.append(f'-k {self.test_name_contains_expr}')
             self.args.append(str(Path(self.path).as_posix()))
             code = pytest.main(args=self.args)
-        if int(code) != 0:
+        if code == 1:
             cleaned_msg = ''
             traceback_str = '\n'.join(traceback)
             if self.strip_traceback_to_err:
