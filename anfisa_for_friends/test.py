@@ -470,14 +470,14 @@ class CompareDiffWithAuthor(ABC):
 def comments_re():
     return re.compile(r'\s*<!--[\w\W]+?-->')
 
+@pytest.fixture(scope='module', autouse=True)
+def update_pythonpath(student_dir):
+    os.environ['PYTHONPATH'] = student_dir
+
 @pytest.fixture(scope='module')
 def student_dir(lesson_dir, is_in_production):
-    if Path(__file__).name == 'test_src.py':
-        # run in `author` dir, test same dir
-        return Path(__file__).parent.as_posix()
-    else:
-        # run in `tests` dir, test project (aka "root") dir
-        return Path(__file__).parent.parent.as_posix()
+    result = Path(__file__).parent.as_posix()
+    return result
 
 @pytest.fixture(scope='module')
 def settings_path_template():
@@ -592,12 +592,16 @@ def list_html_path(dirname: str, list_path_template) -> Path:
     return path
 
 @pytest.fixture(scope='module')
-def lesson_dir(is_in_production):
+def lesson_dir(is_building):
     return str(Path(__file__).parent.parent)
 
 @pytest.fixture(scope='session', autouse=True)
 def is_in_production():
-    return True
+    return not is_building
+
+@pytest.fixture(scope='session', autouse=True)
+def is_building():
+    return 'BUILDING' in os.environ
 
 @pytest.fixture(scope='module')
 def header_path_template():
