@@ -602,7 +602,7 @@ def lesson_dir(is_building):
 
 
 @pytest.fixture(scope='session', autouse=True)
-def is_in_production():
+def is_in_production(is_building):
     return not is_building
 
 
