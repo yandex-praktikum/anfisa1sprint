@@ -1,27 +1,33 @@
 # -*- coding: utf-8 -*-
+import pytest
+import pytest_dependency
+import pytest_order
 
-import difflib
+# -*- coding: utf-8 -*-
+import pytest
+import pytest_dependency
+import pytest_order
 import os
+import difflib
+import inspect
 import re
 import sys
-from abc import ABC
-from abc import abstractmethod
 from collections import defaultdict
-from dataclasses import dataclass
 from functools import partial
 from io import StringIO
-from itertools import chain
 from pathlib import Path
-from typing import Callable
-from typing import Dict
-from typing import Iterable
-from typing import List
-from typing import Optional
+from types import ModuleType
+from itertools import zip_longest, chain
 from typing import Tuple
+from typing import List
 from typing import Union
-
-import pytest
-
+from typing import Optional
+from typing import Iterable
+from dataclasses import dataclass
+from typing import Dict
+from abc import ABC
+from abc import abstractmethod
+from typing import Callable
 
 def read_text_file_asserting_content(
         file_path: Union[str, Path], expect_content: Optional[str],
@@ -61,7 +67,7 @@ def read_text_file_asserting_content(
             cleared_ = '\n'.join(map(str.strip, cleared_.split('\n')))
         return cleared_
 
-    with open(file_path, 'r', encoding='utf8') as fh:
+    with open(file_path, 'r', encoding='utf-8') as fh:
         current_content = fh.read()
         current_content_cleared = clear_content(current_content)
         if expect_content:
@@ -80,12 +86,10 @@ def read_text_file_asserting_content(
 
     return current_content
 
-
 @dataclass
 class DiffsToMake:
     text: str = ''
     line_pos: int = 1
-
 
 class CompareDiffWithAuthor(ABC):
     """Check that diff between author and precode is the same as between
@@ -217,32 +221,6 @@ class CompareDiffWithAuthor(ABC):
         )
 
     @property
-    def how_fix_msg(self):
-        """
-        Template of message for student.
-        Redefined in descendant classes to make it human-readable.
-        """
-        if self.student_item:
-            return (
-                'Попробуйте вставить {{checked_item_name}|accs_sing} '
-                'перед, после или вместо {{checked_item_name}|gent_sing} '
-                '\n\n`{student_item}`\n\n'
-                'В последнем случае в {{checked_item_name}|accs_sing} '
-                'необходимо внести следующие изменения '
-                'после строки прекода №{diffs_to_make_line_pos} '
-                '(строки комментариев не учитываются): '
-                '\n'
-                '`\n{diffs_to_make_text}\n`'
-                '(где `-` - удалить, `+` - добавить, `?` - позиция различий).'
-            )
-        else:
-            return (
-                'Изменения необходимо внести '
-                'после строки прекода №{diffs_to_make_line_pos} '
-                '(строки комментариев не учитываются).'
-            )
-
-    @property
     def remove_or_edit_item_msg(self):
         """
         Template of message for student.
@@ -278,30 +256,33 @@ class CompareDiffWithAuthor(ABC):
         If differences are found, YapTestingException is raised with a message
         showing the difference.
         """
-        for (
-                changed,  # callback looking up differences
-                except_if_diff  # callback raising exception if diff found
-        ) in (
-                (
-                        # removed items checked 1st as they come first in
-                        # `difflib.ndiff` output
-                        partial(removed, only_1st_diffs=False),
-                        self.except_if_removed_diff
-                ),
-                (
-                        partial(added, only_1st_diffs=False),
-                        self.except_if_added_diff
-                ),
-        ):
-            changed_author, changed_author_ixs = changed(
+        def compare(change_cbk: Callable, except_if_diff_cbk: Callable):
+            """
+            
+            Args:
+                change_cbk: callback looking up differences
+                except_if_diff_cbk: callback raising exception if diff found
+            Returns: None
+
+            """
+            changed_author, changed_author_ixs = change_cbk(
                 self.diff_precode_author, diff_from=self.precode_items)
-            changed_student, changed_student_ixs = changed(
+            changed_student, changed_student_ixs = change_cbk(
                 self.diff_precode_student, diff_from=self.precode_items)
             self.compare_diff_with_author(
                 changed_author, changed_author_ixs, changed_student,
                 changed_student_ixs,
-                except_if_diff=except_if_diff
+                except_if_diff=except_if_diff_cbk
             )
+
+        compare(
+            change_cbk=partial(removed, only_1st_diffs=False),
+            except_if_diff_cbk=self.except_if_removed_diff
+        )
+        compare(
+            change_cbk=partial(added, only_1st_diffs=False),
+            except_if_diff_cbk=self.except_if_added_diff
+        )
 
     def compare_diff_with_author(
             self, changed_author: list, changed_author_ixs: list,
@@ -344,15 +325,14 @@ class CompareDiffWithAuthor(ABC):
         else:
             except_msg = ''
 
-        how_fix = self.how_fix_msg if diffs_to_make else ''
-
         if except_msg:
             decline_args = {
                 'add_item': author_item,
                 'remove_item': student_item,
-                'how_fix': how_fix,
+                'how_fix': self.how_fix_msg,
                 'diffs_to_make_text': diffs_to_make.text,
-                'diffs_to_make_line_pos': str(diffs_to_make.line_pos - 1),
+                'text_before_missing_item': (
+                    diffs_to_make.text_before_missing_item),
                 'checked_item_name': self.checked_item_name,
                 'student_item': student_item,
                 'author_item': author_item,
@@ -364,6 +344,7 @@ class CompareDiffWithAuthor(ABC):
             self, author_item, student_item, diffs_to_make: DiffsToMake):
         """Compile message and raise exception with if items removed from
         precode differ in student and author."""
+        self.diffs_to_make = diffs_to_make
         if author_item:
             if student_item:
                 except_msg = self.remove_or_edit_item_msg
@@ -378,13 +359,10 @@ class CompareDiffWithAuthor(ABC):
             decline_args = {
                 'add_item': student_item,  # incorrectly removed
                 'remove_item': author_item,  # should have been removed
-                'how_fix': (
-                    'Изменения необходимо внести '
-                    'после строки прекода №{diffs_to_make_line_pos} '
-                    '(строки комментариев не учитываются).'
-                ),
+                'how_fix': self.how_fix_msg or '',
                 'diffs_to_make_text': diffs_to_make.text,
-                'diffs_to_make_line_pos': diffs_to_make.line_pos - 1,
+                'text_before_missing_item': (
+                        diffs_to_make.text_before_missing_item),
                 'checked_item_name': self.checked_item_name,
             }
             except_msg = self.decline(except_msg, decline_args)
@@ -453,36 +431,89 @@ class CompareDiffWithAuthor(ABC):
                                difflib.ndiff(
                                    student_item.split('\n'),
                                    author_item.split('\n'))))
-                diffs_to_make.line_pos = min(author_ix, student_ix)
+
+                precode_pos = min(author_ix, student_ix)
+                fallback_for_ambiguity = (
+                    f'(Строка прекода {min(1, precode_pos - 2)})')
+                try:
+                    fallback_for_ambiguity = '\n'.join(self.precode_items[:
+                        precode_pos - 1]) + ' (прекод)'
+                except IndexError:
+                    pass
+
+                # find code before target changes
+                if author_item:
+                    # author block missing from student code or changed
+                    diffs_to_make.text_before_missing_item = (
+                        self._get_text_before_given(
+                            self.author_items, author_item,
+                            fallback_for_ambiguity
+                        ))
+                elif student_item:
+                    # student block missing from author code or changed
+                    in_sudent = (
+                        self._get_text_before_given(
+                            self.student_items, student_item,
+                            fallback_for_ambiguity
+                        ))
+                    in_author = (
+                        self._get_text_before_given(
+                            self.author_items, student_item,
+                            fallback_for_ambiguity
+                        ))
+                    if fallback_for_ambiguity in [in_author, in_sudent]:
+                        diffs_to_make.text_before_missing_item = (
+                            fallback_for_ambiguity
+                        )
+                    else:
+                        diffs_to_make.text_before_missing_item = (
+                            in_sudent if in_sudent else in_author
+                        )
+
                 return author_item, student_item, diffs_to_make
         author_item = student_item = ''
         return author_item, student_item, diffs_to_make
 
+    def _get_text_before_given(
+            self, text_lines: Iterable[str], given_text: str,
+            fallback_for_ambiguity: Optional[str]
+    ) -> Optional[str]:
+        text = '\n'.join(text_lines)
+        author_item_pos = text.find(given_text)
+        if author_item_pos >= 0:
+            if text.find(given_text, author_item_pos + 1) >= 0:
+                # ambiguous match, use fallback_for_ambiguity
+                return fallback_for_ambiguity
+            before_author_item_lines = text[:author_item_pos].strip(
+                '\n').split('\n')
+            if len(before_author_item_lines) > 3:
+                # append ... at start to indicate text was omitted
+                before_author_item_text = '\n'.join(
+                    chain(['...'], before_author_item_lines[-3:]))
+            else:
+                before_author_item_text = '\n'.join(
+                    before_author_item_lines[-3:])
+            return before_author_item_text
 
 def comments_re():
     return re.compile(r'\s*<!--[\w\W]+?-->')
 
-
 @pytest.fixture(scope='module', autouse=True)
 def update_pythonpath(student_dir):
     os.environ['PYTHONPATH'] = student_dir
-
 
 @pytest.fixture(scope='module')
 def student_dir(lesson_dir, is_in_production):
     result = Path(__file__).parent.as_posix()
     return result
 
-
 @pytest.fixture(scope='module')
 def settings_path_template():
     return '{}/anfisa_for_friends/settings.py'
 
-
 def settings_path(dirname: str, settings_path_template) -> Path:
     path = get_dir_from_template(settings_path_template, dirname)
     return path
-
 
 def run_pytest_runner(__file__of_test):
     """
@@ -497,12 +528,10 @@ def run_pytest_runner(__file__of_test):
     pytest_runner = PytestRunner(__file__of_test)
     pytest_runner.run_capturing_traceback()
 
-
 def removed(ndiff: list, diff_from: list, only_1st_diffs=False
             ) -> Tuple[List[str], List[int]]:
     diff_getter = DiffGetter(ndiff, diff_from, for_diff_code='- ')
     return diff_getter.get_diff(only_1st_diffs)
-
 
 def read_files_asserting_content(
         student_path: Union[Path, str],
@@ -537,11 +566,9 @@ def read_files_asserting_content(
 
     return student_asserted, author_asserted, precode_asserted
 
-
 @pytest.fixture
 def precode_dir(lesson_dir):
     return (Path(lesson_dir) / 'precode/').as_posix()
-
 
 def partial_format_simple(s: str, **kwargs) -> str:
     """Formats string `s` without throwing an error if not all keyword
@@ -576,7 +603,6 @@ def partial_format_simple(s: str, **kwargs) -> str:
 
     return s_formats_stripped.format(**format_params)
 
-
 def multiple_replace(s: str, mapping: dict, as_regex=False) -> str:
     for key in mapping:
         if as_regex or isinstance(key, re.Pattern):
@@ -585,41 +611,33 @@ def multiple_replace(s: str, mapping: dict, as_regex=False) -> str:
             s = s.replace(key, mapping[key])
     return s
 
-
 @pytest.fixture(scope='module')
 def list_path_template():
     return '{}/templates/ice_cream/list.html'
-
 
 def list_html_path(dirname: str, list_path_template) -> Path:
     path = get_dir_from_template(list_path_template, dirname)
     return path
 
-
 @pytest.fixture(scope='module')
 def lesson_dir(is_building):
     return str(Path(__file__).parent.parent)
 
-
 @pytest.fixture(scope='session', autouse=True)
 def is_in_production(is_building):
-    return not is_building
-
+    return 'IN_PRODUCTION' in os.environ
 
 @pytest.fixture(scope='session', autouse=True)
 def is_building():
-    return 'BUILDING' in os.environ
-
+    return 'BUILD_TESTS' in os.environ
 
 @pytest.fixture(scope='module')
 def header_path_template():
     return '{}/templates/includes/header.html'
 
-
 def header_html_path(dirname: str, header_path_template) -> Path:
     path = get_dir_from_template(header_path_template, dirname)
     return path
-
 
 def get_dir_from_template(path_template: str, root: str):
     assert path_template.startswith('{}/')
@@ -630,7 +648,6 @@ def get_dir_from_template(path_template: str, root: str):
         elif root.endswith('/'):
             root = root[:-1]
     return Path(path_template.format(root)).resolve()
-
 
 def format_nested(text: str, apply_dicts: Union[dict, Iterable[dict]]):
     """
@@ -652,16 +669,13 @@ def format_nested(text: str, apply_dicts: Union[dict, Iterable[dict]]):
             text = text.replace(f'{{{k}}}', f'{v}')
     return text
 
-
 @pytest.fixture(scope='module')
 def detail_path_template():
     return '{}/templates/ice_cream/detail.html'
 
-
 def detail_html_path(dirname: str, detail_path_template) -> Path:
     path = get_dir_from_template(detail_path_template, dirname)
     return path
-
 
 def compare_file_to_author(
         student_path: Union[Path, str], author_path: Union[Path, str],
@@ -703,36 +717,27 @@ def compare_file_to_author(
         comparer.compare_n_items_changed()
     comparer.compare_with_author()
 
-
-def comments_re():
-    return re.compile(r'\s*<!--[\w\W]+?-->')
-
-
 @pytest.fixture(scope='module')
 def base_path_template():
     return '{}/templates/base.html'
-
 
 def base_html_path(dirname: str, base_path_template) -> Path:
     path = get_dir_from_template(base_path_template, dirname)
     return path
 
-
 @pytest.fixture
 def author_dir(lesson_dir):
     return (Path(lesson_dir) / 'author/').as_posix()
-
 
 def added(ndiff: list, diff_from: list, only_1st_diffs=False
           ) -> Tuple[List[str], List[int]]:
     diff_getter = DiffGetter(ndiff, diff_from, for_diff_code='+ ')
     return diff_getter.get_diff(only_1st_diffs)
 
-
 class YapTestingException(Exception):
     pass
 
-
+RQ = ''
 class PytestRunner:
     """
     Run pytest and optionally raise AssertionError with the 1st error
@@ -762,7 +767,12 @@ class PytestRunner:
 
     @staticmethod
     def clean_msg(msg):
-        cleaned = re.sub(r'^E\s+', '', msg, flags=re.MULTILINE)
+        cleaned = msg
+        err_prefixes = re.findall(r'^E\s+', cleaned, flags=re.MULTILINE)
+        if err_prefixes:
+            cleaned = re.sub(
+                fr'^{err_prefixes[0]}', '', cleaned, flags=re.MULTILINE)
+        cleaned = re.sub(r'^E\s+', '', cleaned, flags=re.MULTILINE)
         cleaned = cleaned.replace('assert False', '')
         cleaned = cleaned.rstrip('\n')
         return cleaned
@@ -776,7 +786,7 @@ class PytestRunner:
                 self.args.append(f'-k {self.test_name_contains_expr}')
             self.args.append(str(Path(self.path).as_posix()))
             code = pytest.main(args=self.args)
-        if code == 1:
+        if int(code) != 0:
             cleaned_msg = ''
             traceback_str = '\n'.join(traceback)
             if self.strip_traceback_to_err:
@@ -791,7 +801,7 @@ class PytestRunner:
             if cleaned_msg:
                 assert False, cleaned_msg
 
-
+LQ = ''
 class DiffGetter:
     """Returns added/removed lines from
     ndiff = difflib.ndiff(`diff_from`, ...) output,
@@ -832,7 +842,7 @@ class DiffGetter:
         self.assert_diff_code()
 
         if for_diff_code == self.diff_code_del:
-            self.skip_codes = ({self.diff_code_add, self.diff_code_inf})
+            self.skip_codes = ({self.diff_code_add})
         elif for_diff_code == self.diff_code_add:
             self.skip_codes = ({self.diff_code_inf})
         else:
@@ -846,8 +856,8 @@ class DiffGetter:
     @staticmethod
     def sort_ndiff_items(ndiff_items):
         # sort items within blocks with changes based
-        # - on `+`/`-` marker, with marker `?` stuck to its preceding line
-        # - on the position of marked line within block
+        # 1. on `+`/`-` marker, with marker `?` stuck to its preceding line
+        # 2. on the position of marked line within block
         order = []
         block_ix = 0
         prev_marker: Optional[str] = None
@@ -879,12 +889,23 @@ class DiffGetter:
         """
         See class docs for description
 
-        :param only_1st_diffs: for several consecutive lines that differ only
-            includes the 1st one in the return value
-        :returns: a tuple with list of changed lines/blocks of text and
+        Args:
+            only_1st_diffs: for several consecutive lines that differ only
+                includes the 1st one in the return value
+
+        Returns: a tuple with list of changed lines/blocks of text and
             their positions  in the `self.diff_from` list.
         """
         result_dict = defaultdict(list)
+        skipped = False
+
+        def advance_iters(advance_dir_from=False):
+            result_dict[self.state.diff_from_line_ix].append(
+                self.state.diff_line_no_code)
+            self.advance_ndiff()
+            if advance_dir_from:
+                self.advance_diff_from()
+
         while True:
             try:
                 if self.state.diff_code == self.for_diff_code:
@@ -892,23 +913,28 @@ class DiffGetter:
                         # no need to advance self.diff_from_iter on each
                         # addition, fast forwarding self.ndiff_iter
                         while self.state.diff_code == self.for_diff_code:
-                            result_dict[self.state.diff_from_line_ix].append(
-                                self.state.diff_line_no_code)
-                            self.advance_ndiff()
+                            advance_iters(advance_dir_from=False)
                     else:
                         # for each deletion a line is present both in
                         # self.diff_from and self.ndiff, so we need to advance
                         # corresponding iterators simultaneously
-                        result_dict[self.state.diff_from_line_ix].append(
-                            self.state.diff_line_no_code)
-                        self.advance_ndiff()
-                        self.advance_diff_from()
+                        advance_iters(advance_dir_from=True)
+                    skipped = False
                 elif self.state.diff_code in self.skip_codes:
                     self.advance_ndiff()
+                    skipped = True
+                elif self.state.diff_code == self.diff_code_inf:
+                    if skipped:
+                        self.advance_ndiff()
+                    else:
+                        advance_iters(advance_dir_from=(
+                                self.for_diff_code == self.diff_code_del))
+                    skipped = False
                 elif self.state.diff_code == self.diff_code_eql or (
                         self.state.diff_code == self.diff_code_del):
                     self.advance_ndiff()
                     self.advance_diff_from()
+                    skipped = False
                 else:
                     assert False
 
@@ -934,7 +960,8 @@ class DiffGetter:
         Transforms dict
         {1: ['line1.1', 'line1.2'], 2: ['line2']}
         into to
-        ('line1.1\nline1.2', 'line2'), (1, 2)"""
+        ('line1.1\nline1.2', 'line2'), (1, 2)
+        """
 
         def join_lines(lines: list) -> Optional[str]:
             nonlocal only_1st_diffs
@@ -952,180 +979,7 @@ class DiffGetter:
         diff_lines, diff_line_ixs = unpack
         return diff_lines, diff_line_ixs
 
-
-DECLINE_DICT_FLAT = {'блок|ablt_plur': 'блоками', 'блок|ablt_sing': 'блоком',
-                     'блок|accs_plur': 'блоки', 'блок|accs_sing': 'блок',
-                     'блок|datv_plur': 'блокам', 'блок|datv_sing': 'блоку',
-                     'блок|gent_plur': 'блоков', 'блок|gent_sing': 'блока',
-                     'блок|loct_plur': 'блоках', 'блок|loct_sing': 'блоке',
-                     'блок|nomn_plur': 'блоки', 'блок|nomn_sing': 'блок',
-                     'добавленный|ablt_femn_sing': 'добавленной',
-                     'добавленный|ablt_femn_sing_V_oy': 'добавленною',
-                     'добавленный|ablt_masc_sing': 'добавленным',
-                     'добавленный|ablt_neut_sing': 'добавленным',
-                     'добавленный|ablt_plur': 'добавленными',
-                     'добавленный|accs_anim_masc_sing': 'добавленного',
-                     'добавленный|accs_anim_plur': 'добавленных',
-                     'добавленный|accs_femn_sing': 'добавленную',
-                     'добавленный|accs_inan_masc_sing': 'добавленный',
-                     'добавленный|accs_inan_plur': 'добавленные',
-                     'добавленный|accs_neut_sing': 'добавленное',
-                     'добавленный|datv_femn_sing': 'добавленной',
-                     'добавленный|datv_masc_sing': 'добавленному',
-                     'добавленный|datv_neut_sing': 'добавленному',
-                     'добавленный|datv_plur': 'добавленным',
-                     'добавленный|femn_gent_sing': 'добавленной',
-                     'добавленный|femn_loct_sing': 'добавленной',
-                     'добавленный|femn_nomn_sing': 'добавленная',
-                     'добавленный|gent_masc_sing': 'добавленного',
-                     'добавленный|gent_neut_sing': 'добавленного',
-                     'добавленный|gent_plur': 'добавленных',
-                     'добавленный|loct_masc_sing': 'добавленном',
-                     'добавленный|loct_neut_sing': 'добавленном',
-                     'добавленный|loct_plur': 'добавленных',
-                     'добавленный|masc_nomn_sing': 'добавленный',
-                     'добавленный|neut_nomn_sing': 'добавленное',
-                     'добавленный|nomn_plur': 'добавленные',
-                     'значение|ablt_plur': 'значениями',
-                     'значение|ablt_plur_V_be': 'значеньями',
-                     'значение|ablt_sing': 'значением',
-                     'значение|ablt_sing_V_be': 'значеньем',
-                     'значение|accs_plur': 'значения',
-                     'значение|accs_plur_V_be': 'значенья',
-                     'значение|accs_sing': 'значение',
-                     'значение|accs_sing_V_be': 'значенье',
-                     'значение|datv_plur': 'значениям',
-                     'значение|datv_plur_V_be': 'значеньям',
-                     'значение|datv_sing': 'значению',
-                     'значение|datv_sing_V_be': 'значенью',
-                     'значение|gent_plur': 'значений',
-                     'значение|gent_sing': 'значения',
-                     'значение|gent_sing_V_be': 'значенья',
-                     'значение|loct_plur': 'значениях',
-                     'значение|loct_plur_V_be': 'значеньях',
-                     'значение|loct_sing': 'значении',
-                     'значение|loct_sing_V_be': 'значенье',
-                     'значение|loct_sing_V_be_V_bi': 'значеньи',
-                     'значение|nomn_plur': 'значения',
-                     'значение|nomn_plur_V_be': 'значенья',
-                     'значение|nomn_sing': 'значение',
-                     'значение|nomn_sing_V_be': 'значенье',
-                     'изменённый|ablt_femn_sing': 'изменённой',
-                     'изменённый|ablt_femn_sing_V_oy': 'изменённою',
-                     'изменённый|ablt_masc_sing': 'изменённым',
-                     'изменённый|ablt_neut_sing': 'изменённым',
-                     'изменённый|ablt_plur': 'изменёнными',
-                     'изменённый|accs_anim_masc_sing': 'изменённого',
-                     'изменённый|accs_anim_plur': 'изменённых',
-                     'изменённый|accs_femn_sing': 'изменённую',
-                     'изменённый|accs_inan_masc_sing': 'изменённый',
-                     'изменённый|accs_inan_plur': 'изменённые',
-                     'изменённый|accs_neut_sing': 'изменённое',
-                     'изменённый|datv_femn_sing': 'изменённой',
-                     'изменённый|datv_masc_sing': 'изменённому',
-                     'изменённый|datv_neut_sing': 'изменённому',
-                     'изменённый|datv_plur': 'изменённым',
-                     'изменённый|femn_gent_sing': 'изменённой',
-                     'изменённый|femn_loct_sing': 'изменённой',
-                     'изменённый|femn_nomn_sing': 'изменённая',
-                     'изменённый|gent_masc_sing': 'изменённого',
-                     'изменённый|gent_neut_sing': 'изменённого',
-                     'изменённый|gent_plur': 'изменённых',
-                     'изменённый|loct_masc_sing': 'изменённом',
-                     'изменённый|loct_neut_sing': 'изменённом',
-                     'изменённый|loct_plur': 'изменённых',
-                     'изменённый|masc_nomn_sing': 'изменённый',
-                     'изменённый|neut_nomn_sing': 'изменённое',
-                     'изменённый|nomn_plur': 'изменённые',
-                     'имя|Abbr_gent_sing': 'им', 'имя|ablt_plur': 'именами',
-                     'имя|ablt_sing': 'именем', 'имя|accs_plur': 'имена',
-                     'имя|accs_sing': 'имя', 'имя|datv_plur': 'именам',
-                     'имя|datv_sing': 'имени', 'имя|gent_plur': 'имён',
-                     'имя|gent_sing': 'имени', 'имя|loct_plur': 'именах',
-                     'имя|loct_sing': 'имени', 'имя|nomn_plur': 'имена',
-                     'имя|nomn_sing': 'имя',
-                     'переменный|ablt_femn_sing': 'переменной',
-                     'переменный|ablt_femn_sing_V_oy': 'переменною',
-                     'переменный|ablt_masc_sing': 'переменным',
-                     'переменный|ablt_neut_sing': 'переменным',
-                     'переменный|ablt_plur': 'переменными',
-                     'переменный|accs_anim_masc_sing': 'переменного',
-                     'переменный|accs_anim_plur': 'переменных',
-                     'переменный|accs_femn_sing': 'переменную',
-                     'переменный|accs_inan_masc_sing': 'переменный',
-                     'переменный|accs_inan_plur': 'переменные',
-                     'переменный|accs_neut_sing': 'переменное',
-                     'переменный|datv_femn_sing': 'переменной',
-                     'переменный|datv_masc_sing': 'переменному',
-                     'переменный|datv_neut_sing': 'переменному',
-                     'переменный|datv_plur': 'переменным',
-                     'переменный|femn_gent_sing': 'переменной',
-                     'переменный|femn_loct_sing': 'переменной',
-                     'переменный|femn_nomn_sing': 'переменная',
-                     'переменный|gent_masc_sing': 'переменного',
-                     'переменный|gent_neut_sing': 'переменного',
-                     'переменный|femn_gent_plur': 'переменных',
-                     'переменный|gent_plur': 'переменных',
-                     'переменный|loct_masc_sing': 'переменном',
-                     'переменный|loct_neut_sing': 'переменном',
-                     'переменный|loct_plur': 'переменных',
-                     'переменный|masc_nomn_sing': 'переменный',
-                     'переменный|neut_nomn_sing': 'переменное',
-                     'переменный|nomn_plur': 'переменные',
-                     'путь|ablt_plur': 'путями', 'путь|ablt_sing': 'путём',
-                     'путь|accs_plur': 'пути', 'путь|accs_sing': 'путь',
-                     'путь|datv_plur': 'путям', 'путь|datv_sing': 'пути',
-                     'путь|gent_plur': 'путей', 'путь|gent_sing': 'пути',
-                     'путь|loct_plur': 'путях', 'путь|loct_sing': 'пути',
-                     'путь|nomn_plur': 'пути', 'путь|nomn_sing': 'путь',
-                     'строка|ablt_plur': 'строками',
-                     'строка|ablt_sing': 'строкой',
-                     'строка|ablt_sing_V_oy': 'строкою',
-                     'строка|accs_plur': 'строки',
-                     'строка|accs_sing': 'строку',
-                     'строка|datv_plur': 'строкам',
-                     'строка|datv_sing': 'строке', 'строка|gent_plur': 'строк',
-                     'строка|gent_sing': 'строки',
-                     'строка|loct_plur': 'строках',
-                     'строка|loct_sing': 'строке',
-                     'строка|nomn_plur': 'строки',
-                     'строка|nomn_sing': 'строка',
-                     'текст|ablt_plur': 'текстами',
-                     'текст|ablt_sing': 'текстом', 'текст|accs_plur': 'тексты',
-                     'текст|accs_sing': 'текст', 'текст|datv_plur': 'текстам',
-                     'текст|datv_sing': 'тексту', 'текст|gent_plur': 'текстов',
-                     'текст|gent_sing': 'текста', 'текст|loct_plur': 'текстах',
-                     'текст|loct_sing': 'тексте', 'текст|nomn_plur': 'тексты',
-                     'текст|nomn_sing': 'текст',
-                     'удалённый|ablt_femn_sing': 'удалённой',
-                     'удалённый|ablt_femn_sing_V_oy': 'удалённою',
-                     'удалённый|ablt_masc_sing': 'удалённым',
-                     'удалённый|ablt_neut_sing': 'удалённым',
-                     'удалённый|ablt_plur': 'удалёнными',
-                     'удалённый|accs_anim_masc_sing': 'удалённого',
-                     'удалённый|accs_anim_plur': 'удалённых',
-                     'удалённый|accs_femn_sing': 'удалённую',
-                     'удалённый|accs_inan_masc_sing': 'удалённый',
-                     'удалённый|accs_inan_plur': 'удалённые',
-                     'удалённый|accs_neut_sing': 'удалённое',
-                     'удалённый|datv_femn_sing': 'удалённой',
-                     'удалённый|datv_masc_sing': 'удалённому',
-                     'удалённый|datv_neut_sing': 'удалённому',
-                     'удалённый|datv_plur': 'удалённым',
-                     'удалённый|femn_gent_sing': 'удалённой',
-                     'удалённый|femn_loct_sing': 'удалённой',
-                     'удалённый|femn_nomn_sing': 'удалённая',
-                     'удалённый|gent_masc_sing': 'удалённого',
-                     'удалённый|gent_neut_sing': 'удалённого',
-                     'удалённый|gent_plur': 'удалённых',
-                     'удалённый|loct_masc_sing': 'удалённом',
-                     'удалённый|loct_neut_sing': 'удалённом',
-                     'удалённый|loct_plur': 'удалённых',
-                     'удалённый|masc_nomn_sing': 'удалённый',
-                     'удалённый|neut_nomn_sing': 'удалённое',
-                     'удалённый|nomn_plur': 'удалённые'}
-
-
+DECLINE_DICT_FLAT = {'блок|ablt_plur': 'блоками', 'блок|ablt_sing': 'блоком', 'блок|accs_plur': 'блоки', 'блок|accs_sing': 'блок', 'блок|datv_plur': 'блокам', 'блок|datv_sing': 'блоку', 'блок|gent_plur': 'блоков', 'блок|gent_sing': 'блока', 'блок|loct_plur': 'блоках', 'блок|loct_sing': 'блоке', 'блок|nomn_plur': 'блоки', 'блок|nomn_sing': 'блок', 'добавленный|ablt_femn_sing': 'добавленной', 'добавленный|ablt_femn_sing_V_oy': 'добавленною', 'добавленный|ablt_masc_sing': 'добавленным', 'добавленный|ablt_neut_sing': 'добавленным', 'добавленный|ablt_plur': 'добавленными', 'добавленный|accs_anim_masc_sing': 'добавленного', 'добавленный|accs_anim_plur': 'добавленных', 'добавленный|accs_femn_sing': 'добавленную', 'добавленный|accs_inan_masc_sing': 'добавленный', 'добавленный|accs_inan_plur': 'добавленные', 'добавленный|accs_neut_sing': 'добавленное', 'добавленный|datv_femn_sing': 'добавленной', 'добавленный|datv_masc_sing': 'добавленному', 'добавленный|datv_neut_sing': 'добавленному', 'добавленный|datv_plur': 'добавленным', 'добавленный|femn_gent_sing': 'добавленной', 'добавленный|femn_loct_sing': 'добавленной', 'добавленный|femn_nomn_sing': 'добавленная', 'добавленный|gent_masc_sing': 'добавленного', 'добавленный|gent_neut_sing': 'добавленного', 'добавленный|gent_plur': 'добавленных', 'добавленный|loct_masc_sing': 'добавленном', 'добавленный|loct_neut_sing': 'добавленном', 'добавленный|loct_plur': 'добавленных', 'добавленный|masc_nomn_sing': 'добавленный', 'добавленный|neut_nomn_sing': 'добавленное', 'добавленный|nomn_plur': 'добавленные', 'значение|ablt_plur': 'значениями', 'значение|ablt_plur_V_be': 'значеньями', 'значение|ablt_sing': 'значением', 'значение|ablt_sing_V_be': 'значеньем', 'значение|accs_plur': 'значения', 'значение|accs_plur_V_be': 'значенья', 'значение|accs_sing': 'значение', 'значение|accs_sing_V_be': 'значенье', 'значение|datv_plur': 'значениям', 'значение|datv_plur_V_be': 'значеньям', 'значение|datv_sing': 'значению', 'значение|datv_sing_V_be': 'значенью', 'значение|gent_plur': 'значений', 'значение|gent_sing': 'значения', 'значение|gent_sing_V_be': 'значенья', 'значение|loct_plur': 'значениях', 'значение|loct_plur_V_be': 'значеньях', 'значение|loct_sing': 'значении', 'значение|loct_sing_V_be': 'значенье', 'значение|loct_sing_V_be_V_bi': 'значеньи', 'значение|nomn_plur': 'значения', 'значение|nomn_plur_V_be': 'значенья', 'значение|nomn_sing': 'значение', 'значение|nomn_sing_V_be': 'значенье', 'изменённый|ablt_femn_sing': 'изменённой', 'изменённый|ablt_femn_sing_V_oy': 'изменённою', 'изменённый|ablt_masc_sing': 'изменённым', 'изменённый|ablt_neut_sing': 'изменённым', 'изменённый|ablt_plur': 'изменёнными', 'изменённый|accs_anim_masc_sing': 'изменённого', 'изменённый|accs_anim_plur': 'изменённых', 'изменённый|accs_femn_sing': 'изменённую', 'изменённый|accs_inan_masc_sing': 'изменённый', 'изменённый|accs_inan_plur': 'изменённые', 'изменённый|accs_neut_sing': 'изменённое', 'изменённый|datv_femn_sing': 'изменённой', 'изменённый|datv_masc_sing': 'изменённому', 'изменённый|datv_neut_sing': 'изменённому', 'изменённый|datv_plur': 'изменённым', 'изменённый|femn_gent_sing': 'изменённой', 'изменённый|femn_loct_sing': 'изменённой', 'изменённый|femn_nomn_sing': 'изменённая', 'изменённый|gent_masc_sing': 'изменённого', 'изменённый|gent_neut_sing': 'изменённого', 'изменённый|gent_plur': 'изменённых', 'изменённый|loct_masc_sing': 'изменённом', 'изменённый|loct_neut_sing': 'изменённом', 'изменённый|loct_plur': 'изменённых', 'изменённый|masc_nomn_sing': 'изменённый', 'изменённый|neut_nomn_sing': 'изменённое', 'изменённый|nomn_plur': 'изменённые', 'имя|Abbr_gent_sing': 'им', 'имя|ablt_plur': 'именами', 'имя|ablt_sing': 'именем', 'имя|accs_plur': 'имена', 'имя|accs_sing': 'имя', 'имя|datv_plur': 'именам', 'имя|datv_sing': 'имени', 'имя|gent_plur': 'имён', 'имя|gent_sing': 'имени', 'имя|loct_plur': 'именах', 'имя|loct_sing': 'имени', 'имя|nomn_plur': 'имена', 'имя|nomn_sing': 'имя', 'переменный|ablt_femn_sing': 'переменной', 'переменный|ablt_femn_sing_V_oy': 'переменною', 'переменный|ablt_masc_sing': 'переменным', 'переменный|ablt_neut_sing': 'переменным', 'переменный|ablt_plur': 'переменными', 'переменный|accs_anim_masc_sing': 'переменного', 'переменный|accs_anim_plur': 'переменных', 'переменный|accs_femn_sing': 'переменную', 'переменный|accs_inan_masc_sing': 'переменный', 'переменный|accs_inan_plur': 'переменные', 'переменный|accs_neut_sing': 'переменное', 'переменный|datv_femn_sing': 'переменной', 'переменный|datv_masc_sing': 'переменному', 'переменный|datv_neut_sing': 'переменному', 'переменный|datv_plur': 'переменным', 'переменный|femn_gent_sing': 'переменной', 'переменный|femn_loct_sing': 'переменной', 'переменный|femn_nomn_sing': 'переменная', 'переменный|gent_masc_sing': 'переменного', 'переменный|gent_neut_sing': 'переменного', 'переменный|femn_gent_plur': 'переменных', 'переменный|gent_plur': 'переменных', 'переменный|loct_masc_sing': 'переменном', 'переменный|loct_neut_sing': 'переменном', 'переменный|loct_plur': 'переменных', 'переменный|masc_nomn_sing': 'переменный', 'переменный|neut_nomn_sing': 'переменное', 'переменный|nomn_plur': 'переменные', 'путь|ablt_plur': 'путями', 'путь|ablt_sing': 'путём', 'путь|accs_plur': 'пути', 'путь|accs_sing': 'путь', 'путь|datv_plur': 'путям', 'путь|datv_sing': 'пути', 'путь|gent_plur': 'путей', 'путь|gent_sing': 'пути', 'путь|loct_plur': 'путях', 'путь|loct_sing': 'пути', 'путь|nomn_plur': 'пути', 'путь|nomn_sing': 'путь', 'строка|ablt_plur': 'строками', 'строка|ablt_sing': 'строкой', 'строка|ablt_sing_V_oy': 'строкою', 'строка|accs_plur': 'строки', 'строка|accs_sing': 'строку', 'строка|datv_plur': 'строкам', 'строка|datv_sing': 'строке', 'строка|gent_plur': 'строк', 'строка|gent_sing': 'строки', 'строка|loct_plur': 'строках', 'строка|loct_sing': 'строке', 'строка|nomn_plur': 'строки', 'строка|nomn_sing': 'строка', 'текст|ablt_plur': 'текстами', 'текст|ablt_sing': 'текстом', 'текст|accs_plur': 'тексты', 'текст|accs_sing': 'текст', 'текст|datv_plur': 'текстам', 'текст|datv_sing': 'тексту', 'текст|gent_plur': 'текстов', 'текст|gent_sing': 'текста', 'текст|loct_plur': 'текстах', 'текст|loct_sing': 'тексте', 'текст|nomn_plur': 'тексты', 'текст|nomn_sing': 'текст', 'удалённый|ablt_femn_sing': 'удалённой', 'удалённый|ablt_femn_sing_V_oy': 'удалённою', 'удалённый|ablt_masc_sing': 'удалённым', 'удалённый|ablt_neut_sing': 'удалённым', 'удалённый|ablt_plur': 'удалёнными', 'удалённый|accs_anim_masc_sing': 'удалённого', 'удалённый|accs_anim_plur': 'удалённых', 'удалённый|accs_femn_sing': 'удалённую', 'удалённый|accs_inan_masc_sing': 'удалённый', 'удалённый|accs_inan_plur': 'удалённые', 'удалённый|accs_neut_sing': 'удалённое', 'удалённый|datv_femn_sing': 'удалённой', 'удалённый|datv_masc_sing': 'удалённому', 'удалённый|datv_neut_sing': 'удалённому', 'удалённый|datv_plur': 'удалённым', 'удалённый|femn_gent_sing': 'удалённой', 'удалённый|femn_loct_sing': 'удалённой', 'удалённый|femn_nomn_sing': 'удалённая', 'удалённый|gent_masc_sing': 'удалённого', 'удалённый|gent_neut_sing': 'удалённого', 'удалённый|gent_plur': 'удалённых', 'удалённый|loct_masc_sing': 'удалённом', 'удалённый|loct_neut_sing': 'удалённом', 'удалённый|loct_plur': 'удалённых', 'удалённый|masc_nomn_sing': 'удалённый', 'удалённый|neut_nomn_sing': 'удалённое', 'удалённый|nomn_plur': 'удалённые'}
 class CompareLinesDiffWithAuthor(CompareDiffWithAuthor):
     """
     Checks that:
@@ -1149,11 +1003,13 @@ class CompareLinesDiffWithAuthor(CompareDiffWithAuthor):
         remain.
         """
         return (
-            'Убедитесь, что код \n'
-            '`{add_item}` \n'
-            'есть в решении, не перемещён, не дублируется '
-            'и что в нём нет ошибок.\n'
-            '{how_fix}'
+            f'Убедитесь, что код \n'
+            f'\n'
+            f'{LQ}{{add_item}}{RQ} \n'
+            f'\n'
+            f'есть в решении, не перемещён, не дублируется '
+            f'и что в нём нет ошибок.\n'
+            f'{{how_fix}}'
         )
 
     @property
@@ -1165,25 +1021,33 @@ class CompareLinesDiffWithAuthor(CompareDiffWithAuthor):
         remain.
         """
         if self.student_item:
-            return (
-                'Попробуйте вставить код перед, после или вместо кода\n '
-                '\n'
-                '`{student_item}`\n'
-                '\n'
-                'В последнем случае в него '
-                'необходимо внести следующие изменения '
-                'после строки прекода №{diffs_to_make_line_pos} '
-                '(строки комментариев не учитываются): '
-                '\n'
-                '`\n{diffs_to_make_text}\n`'
-                '(где `-` - удалить, `+` - добавить, `?` - позиция различий).'
+            result = (
+                f'\n'
+                f'Фрагмент вашего кода, в котором обнаружена ошибка:\n '
+                f'\n'
+                f'{LQ}{{student_item}}{RQ}\n'
+                f'\n'
+                f'Изменения, которые следует внести;'
+                f'[-] удалить символ  или строку, [+] добавить, '
+                f'[?] строка с указанием различий, [^] позиция различия'
+                f'\n'
+                f'{LQ}\n{{diffs_to_make_text}}\n{RQ}'
             )
+            if self.diffs_to_make.text_before_missing_item:
+                result += (
+                    f'\n'
+                    f'Изменения необходимо внести после фрагмента кода\n'
+                    f'\n'
+                    f'{{text_before_missing_item}}'
+                )
+            return result
         else:
-            return (
-                'Изменения необходимо внести '
-                'после строки прекода №{diffs_to_make_line_pos} '
-                '(строки комментариев не учитываются).'
-            )
+            if self.diffs_to_make.text_before_missing_item:
+                return (
+                    f'Изменения необходимо внести после фрагмента кода\n'
+                    f'\n'
+                    f'{{text_before_missing_item}}'
+                )
 
     @property
     def match_n_items_msg(self):
@@ -1215,11 +1079,11 @@ class CompareLinesDiffWithAuthor(CompareDiffWithAuthor):
         remain.
         """
         return (
-            'Код\n'
-            '`{remove_item}`\n'
-            'необходимо изменить или удалить '
-            'и убедиться, что он не дублируется.\n '
-            '{how_fix}'
+            f'Код\n'
+            f'{LQ}{{remove_item}}{RQ}\n'
+            f'необходимо изменить или удалить '
+            f'и убедиться, что он не дублируется.\n '
+            f'{{how_fix}}'
         )
 
     def make_items(self, student_items: list, author_items: list,
@@ -1233,7 +1097,6 @@ class CompareLinesDiffWithAuthor(CompareDiffWithAuthor):
             self.student_items = [s.strip() for s in self.student_items]
             self.author_items = [a.strip() for a in self.author_items]
             self.precode_items = [p.strip() for p in self.precode_items]
-
 
 class CapturingStdout(list):
     """
@@ -1254,7 +1117,6 @@ class CapturingStdout(list):
         self.append(self._stringio.getvalue())
         self._stringio.close()
         del self._stringio
-
 
 def test_header_html(
         student_dir, precode_dir, author_dir, header_path_template,
@@ -1339,8 +1201,7 @@ def test_header_html(
             assert_file_content_unchanged=not is_in_production
         )
     except YapTestingException as e:
-        assert False, f'Ошибка в файле `{student_path.relative_to(student_path.parent.parent.parent)}`:\n{str(e)}'
-
+        assert False, f'Ошибка в файле {LQ}{student_path.relative_to(student_path.parent.parent.parent)}{RQ}:\n{str(e)}'
 
 def test_base_html(
         student_dir, precode_dir, author_dir, base_path_template,
@@ -1406,8 +1267,7 @@ def test_base_html(
             assert_file_content_unchanged=not is_in_production
         )
     except YapTestingException as e:
-        assert False, f'Ошибка в файле `{student_path.relative_to(student_path.parent.parent.parent)}`:\n{str(e)}'
-
+        assert False, f'Ошибка в файле {LQ}{student_path.relative_to(student_path.parent.parent.parent)}{RQ}:\n{str(e)}'
 
 def test_list_html(
         student_dir, precode_dir, author_dir, list_path_template,
@@ -1472,8 +1332,7 @@ def test_list_html(
             assert_file_content_unchanged=not is_in_production
         )
     except YapTestingException as e:
-        assert False, f'Ошибка в файле `{student_path.relative_to(student_path.parent.parent.parent)}`:\n{str(e)}'
-
+        assert False, f'Ошибка в файле {LQ}{student_path.relative_to(student_path.parent.parent.parent)}{RQ}:\n{str(e)}'
 
 def test_detail_html(
         student_dir, precode_dir, author_dir, detail_path_template,
@@ -1523,7 +1382,7 @@ def test_detail_html(
             assert_file_content_unchanged=not is_in_production
         )
     except YapTestingException as e:
-        assert False, f'Ошибка в файле `{student_path.relative_to(student_path.parent.parent.parent)}`:\n{str(e)} '
+        assert False, f'Ошибка в файле {LQ}{student_path.relative_to(student_path.parent.parent.parent)}{RQ}:\n{str(e)}'
 
 
 if __name__ == '__main__':
