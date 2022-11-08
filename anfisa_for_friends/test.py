@@ -8,6 +8,7 @@ import pytest
 import pytest_dependency
 import pytest_order
 import os
+import subprocess
 import difflib
 import inspect
 import re
@@ -28,9 +29,6 @@ from typing import Dict
 from abc import ABC
 from abc import abstractmethod
 from typing import Callable
-
-class YapTestingException(Exception):
-    pass
 
 def read_text_file_asserting_content(
         file_path: Union[str, Path], expect_content: Optional[str],
@@ -139,9 +137,9 @@ class CompareDiffWithAuthor(ABC):
                 f'\n'
                 f'{LQ}{{student_item}}{RQ}\n'
                 f'\n'
-                f'Изменения, которые следует внести;'
-                f'[-] удалить символ  или строку, [+] добавить, '
-                f'[?] строка с указанием различий, [^] позиция различия\n'
+                f'Обозначение изменений, которые следует внести:\n'
+                f'[-] удалить символ  или строку,\n[+] добавить,\n'
+                f'[?] строка с указанием различий,\n[^] позиция различия.\n'
                 f'\n'
                 f'{LQ}{{diffs_to_make_text}}{RQ}\n'
             )
@@ -788,6 +786,9 @@ def added(ndiff: list, diff_from: list, only_1st_diffs=False
           ) -> Tuple[List[str], List[int]]:
     diff_getter = DiffGetter(ndiff, diff_from, for_diff_code='+ ')
     return diff_getter.get_diff(only_1st_diffs)
+
+class YapTestingException(Exception):
+    pass
 
 RQ = ''
 class PytestRunner:
