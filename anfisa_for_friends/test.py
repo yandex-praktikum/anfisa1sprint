@@ -1,39 +1,33 @@
 # -*- coding: utf-8 -*-
-import pytest
-import pytest_dependency
-import pytest_order
 
-# -*- coding: utf-8 -*-
-import pytest
-import pytest_dependency
-import pytest_order
-import os
-import subprocess
 import difflib
-import inspect
+import os
 import re
+import subprocess
 import sys
-from collections import defaultdict
-from functools import partial
-from io import StringIO
-from pathlib import Path
-from types import ModuleType
-from itertools import zip_longest, chain
-from typing import Optional
-from typing import Tuple
-from typing import List
-from typing import Union
-from typing import Iterable
-from dataclasses import dataclass
-from typing import Dict
 from abc import ABC
 from abc import abstractmethod
+from collections import defaultdict
+from dataclasses import dataclass
+from functools import partial
+from io import StringIO
+from itertools import chain
+from pathlib import Path
 from typing import Callable
+from typing import Dict
+from typing import Iterable
+from typing import List
+from typing import Optional
+from typing import Tuple
+from typing import Union
+
+import pytest
+
 
 def read_text_file_asserting_content(
         file_path: Union[str, Path], expect_content: Optional[str],
         remove_re_when_comparing: Union[str, object],
-        expect_content_not_set_warning=(
+        expect_content_not_set_warning: Optional[str]=(
                 '\n\nProvide expected content for file '
                 '\n`{file_path}`\n'
                 'Here is the code to set it '
@@ -87,10 +81,12 @@ def read_text_file_asserting_content(
 
     return current_content
 
+
 @dataclass
 class DiffsToMake:
     text: str = ''
     line_pos: int = 1
+
 
 class CompareDiffWithAuthor(ABC):
     """Check that diff between author and precode is the same as between
@@ -294,6 +290,7 @@ class CompareDiffWithAuthor(ABC):
         If differences are found, YapTestingException is raised with a message
         showing the difference.
         """
+
         def compare(change_cbk: Callable, except_if_diff_cbk: Callable):
             """
             
@@ -400,7 +397,7 @@ class CompareDiffWithAuthor(ABC):
                 'how_fix': self.how_fix_msg or '',
                 'diffs_to_make_text': diffs_to_make.text,
                 'text_before_missing_item': (
-                        diffs_to_make.text_before_missing_item),
+                    diffs_to_make.text_before_missing_item),
                 'checked_item_name': self.checked_item_name,
             }
             except_msg = self.decline(except_msg, decline_args)
@@ -475,7 +472,7 @@ class CompareDiffWithAuthor(ABC):
                     f'(Строка прекода {min(1, precode_pos - 2)})')
                 try:
                     fallback_for_ambiguity = '\n'.join(self.precode_items[:
-                        precode_pos - 1]) + ' (прекод)'
+                                                                          precode_pos - 1]) + ' (прекод)'
                 except IndexError:
                     pass
 
@@ -533,25 +530,31 @@ class CompareDiffWithAuthor(ABC):
                     before_author_item_lines[-3:])
             return before_author_item_text
 
+
 def comments_re():
     return re.compile(r'\s*<!--[\w\W]+?-->')
+
 
 @pytest.fixture(scope='module', autouse=True)
 def update_pythonpath(student_dir):
     os.environ['PYTHONPATH'] = student_dir
+
 
 @pytest.fixture(scope='module')
 def student_dir(lesson_dir, is_in_production):
     result = Path(__file__).parent.as_posix()
     return result
 
+
 @pytest.fixture(scope='module')
 def settings_path_template():
     return '{}/anfisa_for_friends/settings.py'
 
+
 def settings_path(dirname: str, settings_path_template) -> Path:
     path = get_dir_from_template(settings_path_template, dirname)
     return path
+
 
 def run_pytest_runner(__file__of_test, setup_django: Optional[bool] = None):
     """
@@ -563,6 +566,7 @@ def run_pytest_runner(__file__of_test, setup_django: Optional[bool] = None):
 
     This is how tests must be run in production.
     """
+
     def _setup_django():
         import django
         from django.conf import settings
@@ -581,10 +585,12 @@ def run_pytest_runner(__file__of_test, setup_django: Optional[bool] = None):
     pytest_runner = PytestRunner(__file__of_test)
     pytest_runner.run_capturing_traceback()
 
+
 def removed(ndiff: list, diff_from: list, only_1st_diffs=False
             ) -> Tuple[List[str], List[int]]:
     diff_getter = DiffGetter(ndiff, diff_from, for_diff_code='- ')
     return diff_getter.get_diff(only_1st_diffs)
+
 
 def read_files_asserting_content(
         student_path: Union[Path, str],
@@ -619,9 +625,11 @@ def read_files_asserting_content(
 
     return student_asserted, author_asserted, precode_asserted
 
+
 @pytest.fixture
 def precode_dir(lesson_dir):
     return (Path(lesson_dir) / 'precode/').as_posix()
+
 
 def partial_format_simple(s: str, **kwargs) -> str:
     """Formats string `s` without throwing an error if not all keyword
@@ -656,6 +664,7 @@ def partial_format_simple(s: str, **kwargs) -> str:
 
     return s_formats_stripped.format(**format_params)
 
+
 def multiple_replace(s: str, mapping: dict, as_regex=False) -> str:
     for key in mapping:
         if as_regex or isinstance(key, re.Pattern):
@@ -664,33 +673,41 @@ def multiple_replace(s: str, mapping: dict, as_regex=False) -> str:
             s = s.replace(key, mapping[key])
     return s
 
+
 @pytest.fixture(scope='module')
 def list_path_template():
     return '{}/templates/ice_cream/list.html'
+
 
 def list_html_path(dirname: str, list_path_template) -> Path:
     path = get_dir_from_template(list_path_template, dirname)
     return path
 
+
 @pytest.fixture(scope='session')
 def lesson_dir(is_building):
     return str(Path(__file__).parent.parent)
+
 
 @pytest.fixture(scope='session', autouse=True)
 def is_in_production(author_dir):
     return 'IN_PRODUCTION' in os.environ or not os.path.isdir(author_dir)
 
+
 @pytest.fixture(scope='session', autouse=True)
 def is_building():
     return 'BUILD_TESTS' in os.environ
+
 
 @pytest.fixture(scope='module')
 def header_path_template():
     return '{}/templates/includes/header.html'
 
+
 def header_html_path(dirname: str, header_path_template) -> Path:
     path = get_dir_from_template(header_path_template, dirname)
     return path
+
 
 def get_dir_from_template(path_template: str, root: str):
     assert path_template.startswith('{}/')
@@ -701,6 +718,7 @@ def get_dir_from_template(path_template: str, root: str):
         elif root.endswith('/'):
             root = root[:-1]
     return Path(path_template.format(root)).resolve()
+
 
 def format_nested(text: str, apply_dicts: Union[dict, Iterable[dict]]):
     """
@@ -722,13 +740,16 @@ def format_nested(text: str, apply_dicts: Union[dict, Iterable[dict]]):
             text = text.replace(f'{{{k}}}', f'{v}')
     return text
 
+
 @pytest.fixture(scope='module')
 def detail_path_template():
     return '{}/templates/ice_cream/detail.html'
 
+
 def detail_html_path(dirname: str, detail_path_template) -> Path:
     path = get_dir_from_template(detail_path_template, dirname)
     return path
+
 
 def compare_file_to_author(
         student_path: Union[Path, str], author_path: Union[Path, str],
@@ -770,27 +791,35 @@ def compare_file_to_author(
         comparer.compare_n_items_changed()
     comparer.compare_with_author()
 
+
 @pytest.fixture(scope='module')
 def base_path_template():
     return '{}/templates/base.html'
+
 
 def base_html_path(dirname: str, base_path_template) -> Path:
     path = get_dir_from_template(base_path_template, dirname)
     return path
 
+
 @pytest.fixture(scope='session')
 def author_dir(lesson_dir):
     return (Path(lesson_dir) / 'author/').as_posix()
+
 
 def added(ndiff: list, diff_from: list, only_1st_diffs=False
           ) -> Tuple[List[str], List[int]]:
     diff_getter = DiffGetter(ndiff, diff_from, for_diff_code='+ ')
     return diff_getter.get_diff(only_1st_diffs)
 
+
 class YapTestingException(Exception):
     pass
 
+
 RQ = ''
+
+
 class PytestRunner:
     """
     Run pytest and optionally raise AssertionError with the 1st error
@@ -860,7 +889,10 @@ class PytestRunner:
             if cleaned_msg:
                 assert False, cleaned_msg
 
+
 LQ = ''
+
+
 class DiffGetter:
     """Returns added/removed lines from
     ndiff = difflib.ndiff(`diff_from`, ...) output,
@@ -1038,7 +1070,180 @@ class DiffGetter:
         diff_lines, diff_line_ixs = unpack
         return diff_lines, diff_line_ixs
 
-DECLINE_DICT_FLAT = {'блок|ablt_plur': 'блоками', 'блок|ablt_sing': 'блоком', 'блок|accs_plur': 'блоки', 'блок|accs_sing': 'блок', 'блок|datv_plur': 'блокам', 'блок|datv_sing': 'блоку', 'блок|gent_plur': 'блоков', 'блок|gent_sing': 'блока', 'блок|loct_plur': 'блоках', 'блок|loct_sing': 'блоке', 'блок|nomn_plur': 'блоки', 'блок|nomn_sing': 'блок', 'добавленный|ablt_femn_sing': 'добавленной', 'добавленный|ablt_femn_sing_V_oy': 'добавленною', 'добавленный|ablt_masc_sing': 'добавленным', 'добавленный|ablt_neut_sing': 'добавленным', 'добавленный|ablt_plur': 'добавленными', 'добавленный|accs_anim_masc_sing': 'добавленного', 'добавленный|accs_anim_plur': 'добавленных', 'добавленный|accs_femn_sing': 'добавленную', 'добавленный|accs_inan_masc_sing': 'добавленный', 'добавленный|accs_inan_plur': 'добавленные', 'добавленный|accs_neut_sing': 'добавленное', 'добавленный|datv_femn_sing': 'добавленной', 'добавленный|datv_masc_sing': 'добавленному', 'добавленный|datv_neut_sing': 'добавленному', 'добавленный|datv_plur': 'добавленным', 'добавленный|femn_gent_sing': 'добавленной', 'добавленный|femn_loct_sing': 'добавленной', 'добавленный|femn_nomn_sing': 'добавленная', 'добавленный|gent_masc_sing': 'добавленного', 'добавленный|gent_neut_sing': 'добавленного', 'добавленный|gent_plur': 'добавленных', 'добавленный|loct_masc_sing': 'добавленном', 'добавленный|loct_neut_sing': 'добавленном', 'добавленный|loct_plur': 'добавленных', 'добавленный|masc_nomn_sing': 'добавленный', 'добавленный|neut_nomn_sing': 'добавленное', 'добавленный|nomn_plur': 'добавленные', 'значение|ablt_plur': 'значениями', 'значение|ablt_plur_V_be': 'значеньями', 'значение|ablt_sing': 'значением', 'значение|ablt_sing_V_be': 'значеньем', 'значение|accs_plur': 'значения', 'значение|accs_plur_V_be': 'значенья', 'значение|accs_sing': 'значение', 'значение|accs_sing_V_be': 'значенье', 'значение|datv_plur': 'значениям', 'значение|datv_plur_V_be': 'значеньям', 'значение|datv_sing': 'значению', 'значение|datv_sing_V_be': 'значенью', 'значение|gent_plur': 'значений', 'значение|gent_sing': 'значения', 'значение|gent_sing_V_be': 'значенья', 'значение|loct_plur': 'значениях', 'значение|loct_plur_V_be': 'значеньях', 'значение|loct_sing': 'значении', 'значение|loct_sing_V_be': 'значенье', 'значение|loct_sing_V_be_V_bi': 'значеньи', 'значение|nomn_plur': 'значения', 'значение|nomn_plur_V_be': 'значенья', 'значение|nomn_sing': 'значение', 'значение|nomn_sing_V_be': 'значенье', 'изменённый|ablt_femn_sing': 'изменённой', 'изменённый|ablt_femn_sing_V_oy': 'изменённою', 'изменённый|ablt_masc_sing': 'изменённым', 'изменённый|ablt_neut_sing': 'изменённым', 'изменённый|ablt_plur': 'изменёнными', 'изменённый|accs_anim_masc_sing': 'изменённого', 'изменённый|accs_anim_plur': 'изменённых', 'изменённый|accs_femn_sing': 'изменённую', 'изменённый|accs_inan_masc_sing': 'изменённый', 'изменённый|accs_inan_plur': 'изменённые', 'изменённый|accs_neut_sing': 'изменённое', 'изменённый|datv_femn_sing': 'изменённой', 'изменённый|datv_masc_sing': 'изменённому', 'изменённый|datv_neut_sing': 'изменённому', 'изменённый|datv_plur': 'изменённым', 'изменённый|femn_gent_sing': 'изменённой', 'изменённый|femn_loct_sing': 'изменённой', 'изменённый|femn_nomn_sing': 'изменённая', 'изменённый|gent_masc_sing': 'изменённого', 'изменённый|gent_neut_sing': 'изменённого', 'изменённый|gent_plur': 'изменённых', 'изменённый|loct_masc_sing': 'изменённом', 'изменённый|loct_neut_sing': 'изменённом', 'изменённый|loct_plur': 'изменённых', 'изменённый|masc_nomn_sing': 'изменённый', 'изменённый|neut_nomn_sing': 'изменённое', 'изменённый|nomn_plur': 'изменённые', 'имя|Abbr_gent_sing': 'им', 'имя|ablt_plur': 'именами', 'имя|ablt_sing': 'именем', 'имя|accs_plur': 'имена', 'имя|accs_sing': 'имя', 'имя|datv_plur': 'именам', 'имя|datv_sing': 'имени', 'имя|gent_plur': 'имён', 'имя|gent_sing': 'имени', 'имя|loct_plur': 'именах', 'имя|loct_sing': 'имени', 'имя|nomn_plur': 'имена', 'имя|nomn_sing': 'имя', 'переменный|ablt_femn_sing': 'переменной', 'переменный|ablt_femn_sing_V_oy': 'переменною', 'переменный|ablt_masc_sing': 'переменным', 'переменный|ablt_neut_sing': 'переменным', 'переменный|ablt_plur': 'переменными', 'переменный|accs_anim_masc_sing': 'переменного', 'переменный|accs_anim_plur': 'переменных', 'переменный|accs_femn_sing': 'переменную', 'переменный|accs_inan_masc_sing': 'переменный', 'переменный|accs_inan_plur': 'переменные', 'переменный|accs_neut_sing': 'переменное', 'переменный|datv_femn_sing': 'переменной', 'переменный|datv_masc_sing': 'переменному', 'переменный|datv_neut_sing': 'переменному', 'переменный|datv_plur': 'переменным', 'переменный|femn_gent_sing': 'переменной', 'переменный|femn_loct_sing': 'переменной', 'переменный|femn_nomn_sing': 'переменная', 'переменный|gent_masc_sing': 'переменного', 'переменный|gent_neut_sing': 'переменного', 'переменный|femn_gent_plur': 'переменных', 'переменный|gent_plur': 'переменных', 'переменный|loct_masc_sing': 'переменном', 'переменный|loct_neut_sing': 'переменном', 'переменный|loct_plur': 'переменных', 'переменный|masc_nomn_sing': 'переменный', 'переменный|neut_nomn_sing': 'переменное', 'переменный|nomn_plur': 'переменные', 'путь|ablt_plur': 'путями', 'путь|ablt_sing': 'путём', 'путь|accs_plur': 'пути', 'путь|accs_sing': 'путь', 'путь|datv_plur': 'путям', 'путь|datv_sing': 'пути', 'путь|gent_plur': 'путей', 'путь|gent_sing': 'пути', 'путь|loct_plur': 'путях', 'путь|loct_sing': 'пути', 'путь|nomn_plur': 'пути', 'путь|nomn_sing': 'путь', 'строка|ablt_plur': 'строками', 'строка|ablt_sing': 'строкой', 'строка|ablt_sing_V_oy': 'строкою', 'строка|accs_plur': 'строки', 'строка|accs_sing': 'строку', 'строка|datv_plur': 'строкам', 'строка|datv_sing': 'строке', 'строка|gent_plur': 'строк', 'строка|gent_sing': 'строки', 'строка|loct_plur': 'строках', 'строка|loct_sing': 'строке', 'строка|nomn_plur': 'строки', 'строка|nomn_sing': 'строка', 'текст|ablt_plur': 'текстами', 'текст|ablt_sing': 'текстом', 'текст|accs_plur': 'тексты', 'текст|accs_sing': 'текст', 'текст|datv_plur': 'текстам', 'текст|datv_sing': 'тексту', 'текст|gent_plur': 'текстов', 'текст|gent_sing': 'текста', 'текст|loct_plur': 'текстах', 'текст|loct_sing': 'тексте', 'текст|nomn_plur': 'тексты', 'текст|nomn_sing': 'текст', 'удалённый|ablt_femn_sing': 'удалённой', 'удалённый|ablt_femn_sing_V_oy': 'удалённою', 'удалённый|ablt_masc_sing': 'удалённым', 'удалённый|ablt_neut_sing': 'удалённым', 'удалённый|ablt_plur': 'удалёнными', 'удалённый|accs_anim_masc_sing': 'удалённого', 'удалённый|accs_anim_plur': 'удалённых', 'удалённый|accs_femn_sing': 'удалённую', 'удалённый|accs_inan_masc_sing': 'удалённый', 'удалённый|accs_inan_plur': 'удалённые', 'удалённый|accs_neut_sing': 'удалённое', 'удалённый|datv_femn_sing': 'удалённой', 'удалённый|datv_masc_sing': 'удалённому', 'удалённый|datv_neut_sing': 'удалённому', 'удалённый|datv_plur': 'удалённым', 'удалённый|femn_gent_sing': 'удалённой', 'удалённый|femn_loct_sing': 'удалённой', 'удалённый|femn_nomn_sing': 'удалённая', 'удалённый|gent_masc_sing': 'удалённого', 'удалённый|gent_neut_sing': 'удалённого', 'удалённый|gent_plur': 'удалённых', 'удалённый|loct_masc_sing': 'удалённом', 'удалённый|loct_neut_sing': 'удалённом', 'удалённый|loct_plur': 'удалённых', 'удалённый|masc_nomn_sing': 'удалённый', 'удалённый|neut_nomn_sing': 'удалённое', 'удалённый|nomn_plur': 'удалённые'}
+
+DECLINE_DICT_FLAT = {'блок|ablt_plur': 'блоками', 'блок|ablt_sing': 'блоком',
+                     'блок|accs_plur': 'блоки', 'блок|accs_sing': 'блок',
+                     'блок|datv_plur': 'блокам', 'блок|datv_sing': 'блоку',
+                     'блок|gent_plur': 'блоков', 'блок|gent_sing': 'блока',
+                     'блок|loct_plur': 'блоках', 'блок|loct_sing': 'блоке',
+                     'блок|nomn_plur': 'блоки', 'блок|nomn_sing': 'блок',
+                     'добавленный|ablt_femn_sing': 'добавленной',
+                     'добавленный|ablt_femn_sing_V_oy': 'добавленною',
+                     'добавленный|ablt_masc_sing': 'добавленным',
+                     'добавленный|ablt_neut_sing': 'добавленным',
+                     'добавленный|ablt_plur': 'добавленными',
+                     'добавленный|accs_anim_masc_sing': 'добавленного',
+                     'добавленный|accs_anim_plur': 'добавленных',
+                     'добавленный|accs_femn_sing': 'добавленную',
+                     'добавленный|accs_inan_masc_sing': 'добавленный',
+                     'добавленный|accs_inan_plur': 'добавленные',
+                     'добавленный|accs_neut_sing': 'добавленное',
+                     'добавленный|datv_femn_sing': 'добавленной',
+                     'добавленный|datv_masc_sing': 'добавленному',
+                     'добавленный|datv_neut_sing': 'добавленному',
+                     'добавленный|datv_plur': 'добавленным',
+                     'добавленный|femn_gent_sing': 'добавленной',
+                     'добавленный|femn_loct_sing': 'добавленной',
+                     'добавленный|femn_nomn_sing': 'добавленная',
+                     'добавленный|gent_masc_sing': 'добавленного',
+                     'добавленный|gent_neut_sing': 'добавленного',
+                     'добавленный|gent_plur': 'добавленных',
+                     'добавленный|loct_masc_sing': 'добавленном',
+                     'добавленный|loct_neut_sing': 'добавленном',
+                     'добавленный|loct_plur': 'добавленных',
+                     'добавленный|masc_nomn_sing': 'добавленный',
+                     'добавленный|neut_nomn_sing': 'добавленное',
+                     'добавленный|nomn_plur': 'добавленные',
+                     'значение|ablt_plur': 'значениями',
+                     'значение|ablt_plur_V_be': 'значеньями',
+                     'значение|ablt_sing': 'значением',
+                     'значение|ablt_sing_V_be': 'значеньем',
+                     'значение|accs_plur': 'значения',
+                     'значение|accs_plur_V_be': 'значенья',
+                     'значение|accs_sing': 'значение',
+                     'значение|accs_sing_V_be': 'значенье',
+                     'значение|datv_plur': 'значениям',
+                     'значение|datv_plur_V_be': 'значеньям',
+                     'значение|datv_sing': 'значению',
+                     'значение|datv_sing_V_be': 'значенью',
+                     'значение|gent_plur': 'значений',
+                     'значение|gent_sing': 'значения',
+                     'значение|gent_sing_V_be': 'значенья',
+                     'значение|loct_plur': 'значениях',
+                     'значение|loct_plur_V_be': 'значеньях',
+                     'значение|loct_sing': 'значении',
+                     'значение|loct_sing_V_be': 'значенье',
+                     'значение|loct_sing_V_be_V_bi': 'значеньи',
+                     'значение|nomn_plur': 'значения',
+                     'значение|nomn_plur_V_be': 'значенья',
+                     'значение|nomn_sing': 'значение',
+                     'значение|nomn_sing_V_be': 'значенье',
+                     'изменённый|ablt_femn_sing': 'изменённой',
+                     'изменённый|ablt_femn_sing_V_oy': 'изменённою',
+                     'изменённый|ablt_masc_sing': 'изменённым',
+                     'изменённый|ablt_neut_sing': 'изменённым',
+                     'изменённый|ablt_plur': 'изменёнными',
+                     'изменённый|accs_anim_masc_sing': 'изменённого',
+                     'изменённый|accs_anim_plur': 'изменённых',
+                     'изменённый|accs_femn_sing': 'изменённую',
+                     'изменённый|accs_inan_masc_sing': 'изменённый',
+                     'изменённый|accs_inan_plur': 'изменённые',
+                     'изменённый|accs_neut_sing': 'изменённое',
+                     'изменённый|datv_femn_sing': 'изменённой',
+                     'изменённый|datv_masc_sing': 'изменённому',
+                     'изменённый|datv_neut_sing': 'изменённому',
+                     'изменённый|datv_plur': 'изменённым',
+                     'изменённый|femn_gent_sing': 'изменённой',
+                     'изменённый|femn_loct_sing': 'изменённой',
+                     'изменённый|femn_nomn_sing': 'изменённая',
+                     'изменённый|gent_masc_sing': 'изменённого',
+                     'изменённый|gent_neut_sing': 'изменённого',
+                     'изменённый|gent_plur': 'изменённых',
+                     'изменённый|loct_masc_sing': 'изменённом',
+                     'изменённый|loct_neut_sing': 'изменённом',
+                     'изменённый|loct_plur': 'изменённых',
+                     'изменённый|masc_nomn_sing': 'изменённый',
+                     'изменённый|neut_nomn_sing': 'изменённое',
+                     'изменённый|nomn_plur': 'изменённые',
+                     'имя|Abbr_gent_sing': 'им', 'имя|ablt_plur': 'именами',
+                     'имя|ablt_sing': 'именем', 'имя|accs_plur': 'имена',
+                     'имя|accs_sing': 'имя', 'имя|datv_plur': 'именам',
+                     'имя|datv_sing': 'имени', 'имя|gent_plur': 'имён',
+                     'имя|gent_sing': 'имени', 'имя|loct_plur': 'именах',
+                     'имя|loct_sing': 'имени', 'имя|nomn_plur': 'имена',
+                     'имя|nomn_sing': 'имя',
+                     'переменный|ablt_femn_sing': 'переменной',
+                     'переменный|ablt_femn_sing_V_oy': 'переменною',
+                     'переменный|ablt_masc_sing': 'переменным',
+                     'переменный|ablt_neut_sing': 'переменным',
+                     'переменный|ablt_plur': 'переменными',
+                     'переменный|accs_anim_masc_sing': 'переменного',
+                     'переменный|accs_anim_plur': 'переменных',
+                     'переменный|accs_femn_sing': 'переменную',
+                     'переменный|accs_inan_masc_sing': 'переменный',
+                     'переменный|accs_inan_plur': 'переменные',
+                     'переменный|accs_neut_sing': 'переменное',
+                     'переменный|datv_femn_sing': 'переменной',
+                     'переменный|datv_masc_sing': 'переменному',
+                     'переменный|datv_neut_sing': 'переменному',
+                     'переменный|datv_plur': 'переменным',
+                     'переменный|femn_gent_sing': 'переменной',
+                     'переменный|femn_loct_sing': 'переменной',
+                     'переменный|femn_nomn_sing': 'переменная',
+                     'переменный|gent_masc_sing': 'переменного',
+                     'переменный|gent_neut_sing': 'переменного',
+                     'переменный|femn_gent_plur': 'переменных',
+                     'переменный|gent_plur': 'переменных',
+                     'переменный|loct_masc_sing': 'переменном',
+                     'переменный|loct_neut_sing': 'переменном',
+                     'переменный|loct_plur': 'переменных',
+                     'переменный|masc_nomn_sing': 'переменный',
+                     'переменный|neut_nomn_sing': 'переменное',
+                     'переменный|nomn_plur': 'переменные',
+                     'путь|ablt_plur': 'путями', 'путь|ablt_sing': 'путём',
+                     'путь|accs_plur': 'пути', 'путь|accs_sing': 'путь',
+                     'путь|datv_plur': 'путям', 'путь|datv_sing': 'пути',
+                     'путь|gent_plur': 'путей', 'путь|gent_sing': 'пути',
+                     'путь|loct_plur': 'путях', 'путь|loct_sing': 'пути',
+                     'путь|nomn_plur': 'пути', 'путь|nomn_sing': 'путь',
+                     'строка|ablt_plur': 'строками',
+                     'строка|ablt_sing': 'строкой',
+                     'строка|ablt_sing_V_oy': 'строкою',
+                     'строка|accs_plur': 'строки',
+                     'строка|accs_sing': 'строку',
+                     'строка|datv_plur': 'строкам',
+                     'строка|datv_sing': 'строке', 'строка|gent_plur': 'строк',
+                     'строка|gent_sing': 'строки',
+                     'строка|loct_plur': 'строках',
+                     'строка|loct_sing': 'строке',
+                     'строка|nomn_plur': 'строки',
+                     'строка|nomn_sing': 'строка',
+                     'текст|ablt_plur': 'текстами',
+                     'текст|ablt_sing': 'текстом', 'текст|accs_plur': 'тексты',
+                     'текст|accs_sing': 'текст', 'текст|datv_plur': 'текстам',
+                     'текст|datv_sing': 'тексту', 'текст|gent_plur': 'текстов',
+                     'текст|gent_sing': 'текста', 'текст|loct_plur': 'текстах',
+                     'текст|loct_sing': 'тексте', 'текст|nomn_plur': 'тексты',
+                     'текст|nomn_sing': 'текст',
+                     'удалённый|ablt_femn_sing': 'удалённой',
+                     'удалённый|ablt_femn_sing_V_oy': 'удалённою',
+                     'удалённый|ablt_masc_sing': 'удалённым',
+                     'удалённый|ablt_neut_sing': 'удалённым',
+                     'удалённый|ablt_plur': 'удалёнными',
+                     'удалённый|accs_anim_masc_sing': 'удалённого',
+                     'удалённый|accs_anim_plur': 'удалённых',
+                     'удалённый|accs_femn_sing': 'удалённую',
+                     'удалённый|accs_inan_masc_sing': 'удалённый',
+                     'удалённый|accs_inan_plur': 'удалённые',
+                     'удалённый|accs_neut_sing': 'удалённое',
+                     'удалённый|datv_femn_sing': 'удалённой',
+                     'удалённый|datv_masc_sing': 'удалённому',
+                     'удалённый|datv_neut_sing': 'удалённому',
+                     'удалённый|datv_plur': 'удалённым',
+                     'удалённый|femn_gent_sing': 'удалённой',
+                     'удалённый|femn_loct_sing': 'удалённой',
+                     'удалённый|femn_nomn_sing': 'удалённая',
+                     'удалённый|gent_masc_sing': 'удалённого',
+                     'удалённый|gent_neut_sing': 'удалённого',
+                     'удалённый|gent_plur': 'удалённых',
+                     'удалённый|loct_masc_sing': 'удалённом',
+                     'удалённый|loct_neut_sing': 'удалённом',
+                     'удалённый|loct_plur': 'удалённых',
+                     'удалённый|masc_nomn_sing': 'удалённый',
+                     'удалённый|neut_nomn_sing': 'удалённое',
+                     'удалённый|nomn_plur': 'удалённые'}
+
+
 class CompareLinesDiffWithAuthor(CompareDiffWithAuthor):
     """
     Checks that:
@@ -1122,6 +1327,7 @@ class CompareLinesDiffWithAuthor(CompareDiffWithAuthor):
             self.author_items = [a.strip() for a in self.author_items]
             self.precode_items = [p.strip() for p in self.precode_items]
 
+
 class CapturingStdout(list):
     """
     Context manager for capturing stdout.
@@ -1141,6 +1347,7 @@ class CapturingStdout(list):
         self.append(self._stringio.getvalue())
         self._stringio.close()
         del self._stringio
+
 
 def test_header_html(
         student_dir, precode_dir, author_dir, header_path_template,
@@ -1230,6 +1437,7 @@ def test_header_html(
             f'{student_path.relative_to(student_path.parent.parent.parent)}'
             f'{RQ}:\n{str(e)} ')
 
+
 def test_base_html(
         student_dir, precode_dir, author_dir, base_path_template,
         is_in_production):
@@ -1299,6 +1507,7 @@ def test_base_html(
             f'{student_path.relative_to(student_path.parent.parent.parent)}'
             f'{RQ}:\n{str(e)} ')
 
+
 def test_list_html(
         student_dir, precode_dir, author_dir, list_path_template,
         is_in_production):
@@ -1366,6 +1575,7 @@ def test_list_html(
             f'Ошибка в файле {LQ}'
             f'{student_path.relative_to(student_path.parent.parent.parent)}'
             f'{RQ}:\n{str(e)} ')
+
 
 def test_detail_html(
         student_dir, precode_dir, author_dir, detail_path_template,
