@@ -12,7 +12,6 @@ Dev/
      ├── html_templates/
      ├── .gitignore
      ├── LICENSE
-     ├── pytest.ini  
      ├── requirements.txt
      └── README.md
 ```
@@ -44,7 +43,6 @@ Dev/
     ├── venv/   
     ├── .gitignore
     ├── LICENSE
-    ├── pytest.ini
     ├── requirements.txt
     └── README.md
 ```
