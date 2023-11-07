@@ -1,0 +1,32 @@
+{% load static %}
+
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" 
+  content="width=device-width, initial-scale=1">
+  <link rel="icon" 
+  href="{% static 'img/fav/fav.png' %}" type="image">
+  <link rel="apple-touch-icon" sizes="180x180" 
+  href="{% static 'img/fav/apple-touch-icon.png' %}">
+  <link rel="icon" type="image/png" sizes="32x32" 
+  href="{% static 'img/fav/favicon-32x32.png' %}">
+  <link rel="icon" type="image/png" sizes="16x16" 
+  href="{% static 'img/fav/favicon-16x16.png' %}">
+  <title>{% block title %}О проекте{% endblock %}</title>
+</head>
+<body>
+  <!-- Включение шапки страницы-->
+  {% include 'includes/header.html' %}
+  <main>
+    <!--Основной контент страницы-->
+    <div class="container py-5">
+      <!-- Включение содержимого конкретной страницы-->
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+  <!-- Включение подвала страницы -->
+  {% include "includes/footer.html" %}   
+</body>
+</html>

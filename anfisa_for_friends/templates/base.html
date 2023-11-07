@@ -1,19 +1,25 @@
 {% load static %}
-<!DOCTYPE html>
-<html lang="ru">
-  <head>
-    <link rel="icon" href="{% static 'img/fav/fav.ico' %}" type="image">
+<!DOCTYPE html> 
+<html lang="ru"> 
+  <head>    
+    <meta charset="utf-8"> 
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" href="img/fav/fav.ico" type="image">
+    <link rel="stylesheet" href="css/bootstrap.min.css">
     <title>
-      {% block title %}{% endblock %}
-    </title>
-    <link rel="stylesheet" href="{% static 'css/bootstrap.min.css' %}">
+      {% block title %}
+      {% endblock %}
+    </title>       
   </head>
   <body>
-    {% include "includes/header.html" %}
-    <main>
-      {% block content %}
-      {% endblock %}
-    </main>
-    {% include "includes/footer.html" %}   
+    {% include 'header.html' %}
+
+    {% block content %}
+    {% endblock %}
+
+    {% include 'footer.html' %}
+
+    <script src="js/jquery-3.2.1.slim.min.js"></script>
+    <script src="js/bootstrap.min.js"></script>
   </body>
 </html>
